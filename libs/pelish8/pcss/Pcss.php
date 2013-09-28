@@ -8,12 +8,23 @@ class Pcss {
     private $baseUrl = '';
     private $css = '';
     
-    public function __construct($config) {
-        if (isset($config['baseUrl'])) {
-            $this->baseUrl = $config['baseUrl'];
+    private $config = [
+        'debug' => false,
+        'baseUrl' => null,
+        'cache.path' => null,
+        'template.path' => null
+    ];
+    
+    public function __construct(array $config) {
+        
+        $configuration = array_merge($this->config, $config);
+        
+        $this->config = &$configuration;
+        try {
+            $this->prepare($_SERVER['PATH_INFO']);
+        } catch (Exception $e) {
+            echo $e->getMessage(), "\n";
         }
-        $this->prepare($_SERVER['PATH_INFO']);
-        $this->dump();
     }
     
     private function prepare($name) {
@@ -47,32 +58,56 @@ class Pcss {
     }
     
     private function fileName($name) {
-        return $this->baseUrl . $name;
+        $path = $this->config['baseUrl'];
+        return ($path === null) ? '' : $path  . $name;
     }
     
     private function loop($mainTag, $property) {
-        $content = $mainTag . " {\n";
+        
+        $propertys = '';
         if (is_object($property)) {
             foreach ($property as $tag => &$value) {
                 if (is_object($value)) {
                     $this->loop($mainTag . ' ' . $tag, $value);
                 } else {
-                    $content .= "    " . $tag . ': ' . $value . ";\n" ;
+                    $propertys .= "    " . $tag . ': ' . $value . ";\n";
                 }
             }
         }
-        $content .= "}\n";
+        if ($propertys !== '') {
+            $this->css .= $mainTag . " {\n" . $propertys . "}\n";
+        }
+    }
+    
+    private function minifyLoop($mainTag, $property) {
         
-        $this->css .= $content;
+        $propertys = '';
+        if (is_object($property)) {
+            foreach ($property as $tag => &$value) {
+                if (is_object($value)) {
+                    $this->loop($mainTag . ' ' . $tag, $value);
+                } else {
+                    $propertys .= $tag . ': ' . $value . ';';
+                }
+            }
+        }
+        if ($propertys !== '') {
+            $this->css .= $mainTag . '{' . $propertys . '}';
+        }
+
     }
     
     private function includeFiles($files) {
         foreach ($files as &$file) {
                $ext = pathinfo($file)['extension'];
-            if ($ext === 'css') {
-                $this->css .= "\n" . @file_get_contents($this->fileName($file)) . "\n";
-            } else {
+            if ($ext === 'pcss') {
                 $this->prepare($file);
+            } else {
+                $content = @file_get_contents($this->fileName($file));
+                if ($content !== false) {
+                    $this->css .= $content . "\n";
+                }
+                
             }
         }
     }
@@ -84,15 +119,29 @@ class Pcss {
             case JSON_ERROR_NONE:
                 return $object;
                 break;
+            case JSON_ERROR_DEPTH:
+            case JSON_ERROR_STATE_MISMATCH:
+            case JSON_ERROR_CTRL_CHAR:
+            case JSON_ERROR_SYNTAX:
+            case JSON_ERROR_UTF8:
+                throw new \Exception("Error Parsing JSON.", 1);
+                break;
         }
         // implement all json parsing errors
         return null;
     }
     
     private function dump() {
+        $this->setHeaders();
+        echo $this->getCss();
+    }
+    
+    public function getCss() {
+        return $this->css;
+    }
+    
+    public function setHeaders() {
         header("Content-type: text/css", true);
-        // echo '<pre>';
-        echo $this->css;
     }
     
 }
